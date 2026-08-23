@@ -4,7 +4,7 @@ Complete, self-verifying analysis and reporting pipeline for:
 
 > Kato, H. *Population decline and the temporal structure of well-being:
 > Contextual strain amid between-person stability in Japan's shrinking
-> cities.* Cities (in revision).
+>  (in revision).
 
 The pipeline goes from the Cabinet Office survey workbook to every
 reported number: panel construction, PCMCI estimation with a
