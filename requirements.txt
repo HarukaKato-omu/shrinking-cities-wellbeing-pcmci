@@ -1,5 +1,0 @@
-numpy
-pandas
-openpyxl
-matplotlib
-tigramite>=5.2
