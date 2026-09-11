@@ -1,0 +1,15 @@
+# Data are never committed (schema.csv is the only tracked file in data/)
+data/*
+!data/schema.csv
+*.xlsx
+*.xlsm
+
+# Generated outputs (--outdir results, or data/ tables/ figures/ in place)
+results/
+tables/
+figures/
+
+# Python / notebook session files
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
