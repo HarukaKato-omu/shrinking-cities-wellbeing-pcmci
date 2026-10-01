@@ -1,0 +1,21 @@
+# Data are never committed (schema.csv is the only tracked file in data/)
+data/*
+!data/schema.csv
+*.xlsx
+*.xlsm
+*.csv.bak
+
+# Generated outputs of complete_pipeline.py (--outdir results, or data/ tables/ figures/ in place)
+results/
+tables/
+figures/
+
+# Generated outputs of validation_analysis.py (any --outdir) and worker checkpoints
+validation*/
+checkpoints/
+*.npz
+
+# Python / notebook session files
+__pycache__/
+*.pyc
+.ipynb_checkpoints/

@@ -1,23 +1,23 @@
 cff-version: 1.2.0
 message: "If you use this code, please cite both the article (preferred-citation) and this repository."
-title: "Population decline and the temporal structure of well-being: reproduction pipeline"
+title: "Population decline and the temporal structure of well-being: reproduction pipeline and validation analyses"
 type: software
 authors:
   - family-names: "Kato"
     given-names: "Haruka"
     affiliation: "Osaka Metropolitan University"
     orcid: "https://orcid.org/0000-0003-0831-1543"
-version: "1.0.0"
-date-released: "2026-09-11"
+version: "1.1.0"
+date-released: "2026-10-01"
 license: MIT
 repository-code: "https://github.com/HarukaKato-omu/shrinking-cities-wellbeing-pcmci"
 # identifiers:
 #   - type: doi
-#     value: "10.5281/zenodo.XXXXXXX"   # [author check: add the Zenodo DOI on release]
+#     value: "10.5281/zenodo.XXXXXXX"   # add the Zenodo DOI on release
 preferred-citation:
   type: article
   status: submitted
-  title: "Population decline and the temporal structure of well-being: Contextual strain amid between-person stability in Japan's shrinking cities"   # [author check: final title]
+  title: "Population decline and the temporal structure of well-being: Contextual strain amid between-person stability in Japan's shrinking cities"
   journal: "Cities"
   authors:
     - family-names: "Kato"
