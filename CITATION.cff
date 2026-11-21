@@ -11,14 +11,9 @@ version: "2.1.1"
 date-released: "2026-11-21"
 license: MIT
 repository-code: "https://github.com/HarukaKato-omu/shrinking-cities-wellbeing-pcmci"
-# identifiers:
-#   - type: doi
-#     value: "10.5281/zenodo.XXXXXXX"   # add the Zenodo DOI on release
 preferred-citation:
-  type: article
-  status: submitted
+  type: unpublished
   title: "Population decline and the temporal structure of well-being: A candidate contextual strain amid between-person stability in Japan's shrinking cities"
-  journal: "Cities"
   authors:
     - family-names: "Kato"
       given-names: "Haruka"

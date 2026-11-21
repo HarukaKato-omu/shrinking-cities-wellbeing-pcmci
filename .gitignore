@@ -5,8 +5,9 @@ data/*
 *.xlsm
 *.csv.bak
 
-# Generated outputs of complete_pipeline.py (--outdir results, or data/ tables/ figures/ in place)
+# Generated outputs of complete_pipeline.py (any --outdir named results or results_*)
 results/
+results_*/
 tables/
 figures/
 

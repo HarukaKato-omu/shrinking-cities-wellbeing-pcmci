@@ -4,7 +4,7 @@ Replication code for:
 
 > Kato, H. *Population decline and the temporal structure of well-being:
 > A candidate contextual strain amid between-person stability in Japan's
-> shrinking cities.* *Cities*, in revision.
+> shrinking cities.* Manuscript.
 
 This repository contains the Python code that estimates the lagged
 dependency structure among fourteen satisfaction domains in Japanese
@@ -261,9 +261,8 @@ they are not reported in the article.
 
 ## Citation
 
-If you use this code, please cite the paper above and, for the exact
-released version of this code, the archived DOI (Zenodo; citation
-metadata for this repository is provided in `CITATION.cff`).
+If you use this code, please cite the paper above and this repository
+(citation metadata are provided in `CITATION.cff`).
 
 ## License
 
@@ -274,3 +273,4 @@ conditions of provision.
 ## Contact
 
 Haruka Kato, Osaka Metropolitan University
+(ORCID: [0000-0003-0831-1543](https://orcid.org/0000-0003-0831-1543))
