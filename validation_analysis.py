@@ -1,5 +1,42 @@
 #!/usr/bin/env python3
-"""SmartDecline PCMCI validation, release 1.1.0 (2026-10-01).
+"""SmartDecline PCMCI validation, release 2.1.1 (2026-11-14).
+
+Intended use in the third revision (two runs, two output directories):
+  network run   --window strict3 --design mci       full MCI on three-consecutive-wave windows:
+                every lagged value in X, Y and the conditioning set belongs to the same respondent
+                in consecutive years (Tables 3-6, Figures 2-3).
+  targeted run  --window lag1 --design lag1only     lag-1-only tests on all valid lag-1 transitions:
+                the decline contrast, its bootstrap and permutation tests, the continuous
+                moderation by the population change rate (Tables 7-8, Figure 4) and the lag-1-only
+                network layer for the supplement.
+
+Release 2.1.1: under --design lag1only the recorded n of every fit is the estimation sample itself.
+Tigramite discards the first 2*tau_max rows of the stacked array, so a transition whose target is the
+second row was counted in n but never used; it is now excluded from the mask as well (estimates are
+unchanged, n is at most one smaller).  --design mci is untouched and reproduces release 1.1.0.
+
+Release 2.1.0: V9_figure4_lines.json additionally holds the fitted lines for SMCs (keys "SMC 65+"
+and "SMC 15-64"); the pooled keys and every other output are unchanged.
+
+Release 2.0.1: in the time permutation (perm_time) the "all 65+" replicate is now built from the
+all-65+ sample itself (respondents with >= 3 waves in that sample), not from the union of the
+shrinking and non-shrinking replicates, which dropped respondents who moved between the two
+groups.  The shrinking and non-shrinking replicates are unchanged for a given seed.
+
+Release 2.0.0 adds --design:
+  --design mci        (default) full MCI, conditioning on the parents of the target AND the
+                      shifted parents of the source (lag 2).  With --window lag1 this reproduces
+                      release 1.1.0 exactly, including the lag-2 terms that are read from an
+                      invalid row for transitions without a three-year history.
+  --design lag1only   the source-parent conditions are dropped (Tigramite max_conds_px=0), so
+                      every test reads values at t and t-1 only and all valid lag-1 transitions
+                      are used with no invalid value.  The statistic is then the partial
+                      correlation of X(t-1) and Y(t) given the PC-selected parents of Y; it is
+                      NOT the MCI statistic of Runge et al. (2019).  `window_check` additionally
+                      reports the full MCI on three-consecutive-wave windows (design mci, strict3).
+
+The text below describes release 1.1.0 and applies unchanged to --design mci.
+
 
 Analysis code is identical to version 3.2.0, with which the manuscript's
 validation results were produced; release 1.1.0 adds only outputs:
@@ -95,7 +132,7 @@ from tigramite.data_processing import DataFrame as TigDataFrame
 from tigramite.independence_tests.parcorr import ParCorr
 from tigramite.pcmci import PCMCI
 
-__version__ = "1.1.0"
+__version__ = "2.1.1"
 
 # ----------------------------------------------------------------------------
 # constants (identical to complete_pipeline.py where they overlap)
@@ -108,6 +145,7 @@ SHRINK_THRESHOLD, POP_BASE_YEAR, POP_END_YEAR, SHRINK_YEARS = -0.0015, 2017, 202
 COVID_YEARS = {2020, 2021}
 HISTORY = 1            # set from --window in main(): lag1 -> 1, strict3 -> 2
 REP_RANGE = None       # (start, end) from --rep-range: compute only these replicates, no summary
+DESIGN = "mci"         # set from --design in main(): "mci" (full MCI) or "lag1only" (max_conds_px=0)
 
 ANALYSIS_COLS = [
     "PID", "Life Satisfaction", "Finances & Assets", "Jobs & Wages", "Housing",
@@ -412,7 +450,10 @@ def demean(sub):
 
 
 def valid_index(d, history=None):
-    """Rows t whose previous `history` rows are the same respondent in consecutive years."""
+    """Rows t whose previous `history` rows are the same respondent in consecutive years.
+    Under --design lag1only the default call also drops rows below Tigramite's cut-off (2*tau_max), so that the
+    mask, the recorded n and the estimation sample coincide; explicit `history` calls are left as they are."""
+    cut = 2 * TAU_MAX if (history is None and DESIGN == "lag1only") else 0
     history = HISTORY if history is None else history
     if len(d) <= history:
         return np.array([], dtype=int)
@@ -421,7 +462,8 @@ def valid_index(d, history=None):
     good = np.ones(len(idx), bool)
     for lag in range(1, history + 1):
         good &= (ids[idx] == ids[idx - lag]) & (yrs[idx] - yrs[idx - lag] == lag)
-    return idx[good]
+    idx = idx[good]
+    return idx[idx >= cut]
 
 
 def transition_mask(sub):
@@ -442,6 +484,8 @@ class Fit:
 def mci_conditioning_set(parents, i, j, tau=1):
     """Replicates tigramite._iter_indep_conds: parents(Y) minus X, plus shifted parents(X)."""
     z = [node for node in parents[j] if node != (i, -tau)]
+    if DESIGN == "lag1only":                 # max_conds_px=0: parents of Y only, all at lag 1
+        return z
     for k, lag in parents[i]:
         node = (k, lag - tau)
         if node not in z:
@@ -466,6 +510,8 @@ def aligned_array(d, i, j, z):
     cannot.  Returns (array, row_index)."""
     nodes = [(i, -1), (j, 0)] + list(z)
     maxlag = max(-lag for _, lag in nodes)
+    if DESIGN == "lag1only":                 # replicate Tigramite's cut-off of the first 2*tau_max rows
+        maxlag = max(maxlag, 2 * TAU_MAX)
     idx = valid_index(d)
     idx = idx[idx - maxlag >= 0]
     values = d[ALL].to_numpy(float)
@@ -503,7 +549,8 @@ def run_model_with_parents(sub):
     if not (len(idx) - 2 <= array.shape[1] <= len(idx)):
         raise AssertionError(f"Tigramite sample {array.shape[1]} != mask sample {len(idx)}")
     pcmci = PCMCI(dataframe=tdf, cond_ind_test=ParCorr(significance="analytic", mask_type="y"), verbosity=0)
-    res = pcmci.run_pcmci(tau_min=TAU_MIN, tau_max=TAU_MAX, pc_alpha=PC_ALPHA)
+    res = pcmci.run_pcmci(tau_min=TAU_MIN, tau_max=TAU_MAX, pc_alpha=PC_ALPHA,
+                          max_conds_px=(0 if DESIGN == "lag1only" else None))
     fit = Fit(sub, res["val_matrix"], res["p_matrix"], len(idx), pcmci.all_parents)
     check, _ = parcorr_masked(sub, CS, WLB, mci_conditioning_set(fit.parents, I, J))
     if not np.isclose(check, fit.val[I, J, 1], atol=1e-8):
@@ -624,14 +671,14 @@ def step_networks(frame, out, scales):
                     label = model_label(scale, older, shrink)
                     fit = cached_fit(sub, out, f"network_{scale}_{int(older)}_{shrink}_{mode}")
                     q = bh_qvalues_lag1(fit.p); sel = reported_edges(fit); st = out_strength(fit)
-                    rows.append({"model": label, "mode": mode, "window": "strict3" if HISTORY == 2 else "lag1",
+                    rows.append({"model": label, "mode": mode, "window": "strict3" if HISTORY == 2 else "lag1", "design": DESIGN,
                                  "n_valid": fit.n, "n_edges": len(sel), "n_negative": sum(fit.val[i, j, 1] < 0 for i, j in sel),
                                  "LS_out_strength": st.get(HUB, 0.0), "LS_out_strength_loose": out_strength(fit, SENS_FLOOR).get(HUB, 0.0)})
                     for i, j in PAIR_INDEX:
                         edges.append({"model": label, "mode": mode, "source": S[i], "target": S[j], "MCI": fit.val[i, j, 1],
                                       "p": fit.p[i, j, 1], "q": q[i, j], "reported": (i, j) in sel, "n_valid": fit.n,
                                       "Z": "; ".join(zname(mci_conditioning_set(fit.parents, i, j)))})
-                    if HISTORY == 1 and shrink is not False:
+                    if HISTORY == 1 and DESIGN == "mci" and shrink is not False:
                         if mode == "pooled":
                             for (sc, ol, sh, dom), exp in TABLE5_SENTINELS.items():
                                 if (sc, ol, sh) == (scale, older, shrink):
@@ -764,6 +811,7 @@ def step_perm_time(analysis, fits, out, scales, nrep, seed):
         obs, Zp_obs, Zu_obs = contrast_metrics(fs, fn)
         base_s = restrict_min_waves(stratum(analysis, scale, True, True))
         base_n = restrict_min_waves(stratum(analysis, scale, True, False))
+        base_a = restrict_min_waves(stratum(analysis, scale, True, None))
         rows, ms, mn, ma, zp, zu = [], [], [], [], [], []
         t0 = time.time()
         for b in range(nrep):
@@ -776,7 +824,7 @@ def step_perm_time(analysis, fits, out, scales, nrep, seed):
             else:
                 rng = stream(seed, "perm_time", scale, b)
                 ps, pn = permute_within_person(base_s, rng), permute_within_person(base_n, rng)
-                pa = pd.concat([ps, pn]).sort_values(["respondent_id", "year"]).reset_index(drop=True)
+                pa = permute_within_person(base_a, rng)      # drawn after ps, pn: their streams are unchanged
                 bs, bn, ba = run_model_with_parents(demean(ps)), run_model_with_parents(demean(pn)), run_model_with_parents(demean(pa))
                 row, Zp, Zu = contrast_metrics(bs, bn)
                 vs, vn, va = bs.val[:14, :14, 1], bn.val[:14, :14, 1], ba.val[:14, :14, 1]
@@ -803,7 +851,7 @@ def step_perm_time(analysis, fits, out, scales, nrep, seed):
                               "null_q975": float(np.quantile(nd, .975)), "null_centred_mci": float(o - nd.mean()),
                               "perm_p_two_tail": mc_two_tail(nd, o)})
         save_table(out, f"V3_table6_edges_vs_null_{scale}.csv", edges)
-        res = {"nrep": nrep, "window": "strict3" if HISTORY == 2 else "lag1", "observed": obs,
+        res = {"nrep": nrep, "window": "strict3" if HISTORY == 2 else "lag1", "design": DESIGN, "observed": obs,
                "null_q025_q50_q975": {c: [float(x) for x in null[c].quantile([.025, .5, .975])] for c in null.columns},
                "null_mean_reported_edges_s": float(null["paper__n_reported_edges_s"].mean()),
                "null_share_reps_with_reported_edge_s": float((null["paper__n_reported_edges_s"] > 0).mean()),
@@ -873,7 +921,7 @@ def step_perm_label(analysis, fits, out, scales, nrep, seed, modes):
             save_table(out, f"V6_perm_label_{scale}_{mode}.csv", null)
             write_npz(Path(out) / f"V6_perm_label_{scale}_{mode}_zmatrices.npz", z_paper=np.asarray(zp), z_union=np.asarray(zu),
                       observed_z_paper=Zp_obs, observed_z_union=Zu_obs, var_names=np.asarray(S))
-            res = {"nrep": nrep, "label_blocks": mode, "window": "strict3" if HISTORY == 2 else "lag1", "blocks": diag, "observed": obs,
+            res = {"nrep": nrep, "label_blocks": mode, "window": "strict3" if HISTORY == 2 else "lag1", "design": DESIGN, "blocks": diag, "observed": obs,
                    "null_q025_q50_q975": {c: [float(x) for x in null[c].quantile([.025, .5, .975])] for c in null.columns},
                    **perm_pvalues(null, obs, "")}
             write_json(Path(out) / f"V6_perm_label_{scale}_{mode}.json", res); results[(scale, mode)] = res
@@ -948,27 +996,30 @@ def step_ahiv(analysis, out, scales):
 
 
 def step_window_check(analysis, out, scales):
-    """Target coefficients under both windows, without touching the primary fits."""
-    global HISTORY
-    primary = HISTORY
+    """Target coefficients under both windows, without touching the primary fits.
+    Under --design lag1only a third row gives the full MCI on three-consecutive-wave windows."""
+    global HISTORY, DESIGN
+    primary, primary_design = HISTORY, DESIGN
+    combos = [(1, "mci"), (2, "mci")] if primary_design == "mci" else [(1, "lag1only"), (2, "lag1only"), (2, "mci")]
     rows = []
-    for hist, wname in ((1, "lag1"), (2, "strict3")):
-        HISTORY = hist
+    for hist, design in combos:
+        HISTORY, DESIGN = hist, design
+        wname = "lag1" if hist == 1 else "strict3"
         for scale in scales:
             f = {}
             for shrink in (True, False):
                 sub = demean(stratum(analysis, scale, True, shrink))
-                f[shrink] = cached_fit(sub, out, f"window_{wname}_{scale}_{shrink}_within")
+                f[shrink] = cached_fit(sub, out, f"window_{wname}_{design}_{scale}_{shrink}_within")
             fs, fn = f[True], f[False]
             z, pv = fisher_z(fs.val[I, J, 1], fs.n, fn.val[I, J, 1], fn.n)
-            rows.append({"scale": SLAB[scale], "window": wname, "n_s": fs.n, "n_n": fn.n,
+            rows.append({"scale": SLAB[scale], "window": wname, "design": design, "n_s": fs.n, "n_n": fn.n,
                          "mci_s": float(fs.val[I, J, 1]), "mci_n": float(fn.val[I, J, 1]), "z_paper": z, "p_iid": pv,
                          "Z_s": "; ".join(zname(mci_conditioning_set(fs.parents, I, J))),
                          "Z_n": "; ".join(zname(mci_conditioning_set(fn.parents, I, J))),
                          "reported_edges_s": "; ".join(f"{S[i]}->{S[j]}" for i, j in reported_edges(fs))})
-            print(f"[V7 {scale} {wname}] n {fs.n}/{fn.n}, MCI {fs.val[I, J, 1]:+.3f}/{fn.val[I, J, 1]:+.3f}, z {z:.2f}", flush=True)
-    HISTORY = primary
-    save_table(out, "V7_window_sensitivity.csv", rows, ["scale", "window"])
+            print(f"[V7 {scale} {wname} {design}] n {fs.n}/{fn.n}, MCI {fs.val[I, J, 1]:+.3f}/{fn.val[I, J, 1]:+.3f}, z {z:.2f}", flush=True)
+    HISTORY, DESIGN = primary, primary_design
+    save_table(out, "V7_window_sensitivity.csv", rows, ["scale", "window", "design"])
 
 
 def step_period_check(fits, out, scales):
@@ -1125,8 +1176,10 @@ def step_dose_response(analysis, out, scales, seed, nperm=2000):
             idx = valid_index(dd, 1); idx = idx[idx - 2 >= 0]
             rr = 100.0 * dd["annual_change_rate"].to_numpy(float)[idx]
             edges_q = np.quantile(rr, [0, .2, .4, .6, .8, 1.0])
-            A = np.column_stack([vals[idx - 1, ALL.index(CS)], vals[idx, ALL.index(WLB)],
-                                 vals[idx - 1, ALL.index(WLB)], vals[idx - 2, ALL.index(CS)]])
+            cols = [vals[idx - 1, ALL.index(CS)], vals[idx, ALL.index(WLB)], vals[idx - 1, ALL.index(WLB)]]
+            if DESIGN != "lag1only":           # the lag-2 term is invalid for run-opening transitions
+                cols.append(vals[idx - 2, ALL.index(CS)])
+            A = np.column_stack(cols)
             for q in range(5):
                 m = (rr >= edges_q[q]) & (rr <= edges_q[q + 1]) if q == 4 else (rr >= edges_q[q]) & (rr < edges_q[q + 1])
                 bins.append({"scale": scale, "quintile": q + 1, "rate_lo": edges_q[q], "rate_hi": edges_q[q + 1],
@@ -1154,7 +1207,7 @@ def step_dose_extra(analysis, out, scales, seed, nperm=2000):
     rng = np.random.default_rng([int(seed), 9, 3])
     grid = np.round(np.arange(-3.0, 2.2001, 0.05), 2)
     lines, region_rows, qrows = {}, [], []
-    for scale, older in (("pooled", True), ("pooled", False), ("SMC", True), ("Large", True)):
+    for scale, older in (("pooled", True), ("pooled", False), ("SMC", True), ("Large", True), ("SMC", False)):
         sub = stratum(analysis, None if scale == "pooled" else scale, older, None)
         D = _dose_design(sub)
         extra = None
@@ -1163,10 +1216,11 @@ def step_dose_extra(analysis, out, scales, seed, nperm=2000):
             extra = np.column_stack([large, large * D["x"]])
         b, se, V, names = _fit_interaction(D, extra)
         j, k = names.index("CS(t-1)"), names.index("CS(t-1) x rate")
-        if scale == "pooled":                                   # (a) fitted lines
+        if scale in ("pooled", "SMC"):                          # (a) fitted lines (pooled and SMCs)
             Gm = np.column_stack([np.ones_like(grid), grid])
             cov = np.array([[V[j, j], V[j, k]], [V[k, j], V[k, k]]])
-            lines["65+" if older else "15-64"] = {
+            cohort = "65+" if older else "15-64"
+            lines[cohort if scale == "pooled" else f"{scale} {cohort}"] = {
                 "b_cs": float(b[j]), "b_int": float(b[k]), "se_int": float(se[k]),
                 "grid": grid.tolist(), "slope": (b[j] + b[k] * grid).tolist(),
                 "se": np.sqrt(np.einsum("ij,jk,ik->i", Gm, cov, Gm)).tolist(),
@@ -1281,7 +1335,7 @@ def initialise_run(out, args):
     out.mkdir(parents=True, exist_ok=True)
     inputs = [args.xlsx] if args.xlsx else [args.data_csv, args.pop_csv]
     identity = {"version": __version__, "source_sha256": sha256(__file__), "input_sha256": [sha256(p) for p in inputs],
-                "seed": args.seed, "window": args.window, "exclude_movers": args.exclude_movers,
+                "seed": args.seed, "window": args.window, "design": args.design, "exclude_movers": args.exclude_movers,
                 "pc_alpha": PC_ALPHA, "jitter": [JITTER_SEED, JITTER_SD]}
     versions = {n: importlib.metadata.version(n) for n in ("numpy", "pandas", "scipy", "tigramite")}
     path = out / "run_metadata.json"
@@ -1307,19 +1361,27 @@ def self_test():
     assert valid_index(d, 1).tolist() == [1, 2, 5, 6]
     assert valid_index(d, 2).tolist() == [2, 6]
     assert mc_p(np.zeros(9), 1) == 0.1 and mc_two_tail(np.zeros(9), 1) == 0.2
+    global DESIGN
+    keep = DESIGN
+    DESIGN = "mci"
     z = mci_conditioning_set({J: [(J, -1), (I, -1)], I: [(I, -1), (3, -1)]}, I, J)
     assert z == [(J, -1), (I, -2), (3, -2)]
+    DESIGN = "lag1only"
+    assert mci_conditioning_set({J: [(J, -1), (I, -1)], I: [(I, -1), (3, -1)]}, I, J) == [(J, -1)]
+    DESIGN = keep
     print("[self-test] OK", flush=True)
 
 
 def main(argv=None):
-    global HISTORY, REP_RANGE
+    global HISTORY, REP_RANGE, DESIGN
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--xlsx"); ap.add_argument("--data-csv"); ap.add_argument("--pop-csv")
     ap.add_argument("--outdir", default="validation_v3")
     ap.add_argument("--steps", default="gate,diag,common,boot,ahiv,perm_time,perm_label,window_check,period_check,dose")
     ap.add_argument("--scales", default="SMC,Large")
     ap.add_argument("--window", choices=["lag1", "strict3"], default="lag1")
+    ap.add_argument("--design", choices=["mci", "lag1only"], default="mci",
+                    help="mci: full MCI (release 1.1.0); lag1only: no source-parent conditions (max_conds_px=0)")
     ap.add_argument("--exclude-movers", action="store_true")
     ap.add_argument("--label-blocks", default="global,region")
     ap.add_argument("--nboot", type=int, default=2000)
@@ -1337,6 +1399,7 @@ def main(argv=None):
     else:
         REP_RANGE = None
     HISTORY = 1 if args.window == "lag1" else 2
+    DESIGN = args.design
     scales = tuple(s.strip() for s in args.scales.split(","))
     steps = set(s.strip() for s in args.steps.split(","))
     modes = [m.strip() for m in args.label_blocks.split(",")]

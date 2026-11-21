@@ -3,43 +3,93 @@
 Replication code for:
 
 > Kato, H. *Population decline and the temporal structure of well-being:
-> Contextual strain amid between-person stability in Japan's shrinking
-> cities.* *Cities*, in revision.
+> A candidate contextual strain amid between-person stability in Japan's
+> shrinking cities.* *Cities*, in revision.
 
-This repository contains the Python code used to estimate the temporal
-(lag-1) dependency structure among fourteen satisfaction domains in
-Japanese municipalities, stratified by city scale (Large cities vs.
-Small-to-Medium Cities, SMCs) and age cohort (15–64 vs. 65+), using PCMCI
-(`tigramite`) with a within-person transition mask (`mask_type="y"`),
-Benjamini–Hochberg multiplicity control with an effect-size floor, a
-person-demeaned within-person specification, and decline contrasts.
-It has two layers:
+This repository contains the Python code that estimates the lagged
+dependency structure among fourteen satisfaction domains in Japanese
+municipalities, stratified by city scale (large cities vs. small and
+medium-sized cities, SMCs) and age group (15–64 vs. 65+), with PCMCI
+(`tigramite`), Benjamini–Hochberg multiplicity control with an
+effect-size floor, a person-demeaned within-person specification, and
+the decline contrasts and validation analyses of the article.
 
-1. **`complete_pipeline.py` (v1.0.0, unchanged since release 1.0.0)** goes
-   from the survey workbook to every estimate in the article: panel
-   construction, six self-verification gates, the 28 PCMCI models, and the
-   deterministic generation of **Tables 1–7** and **Figures 2–3**.
-2. **`validation_analysis.py` (added in release 1.1.0)** runs on top of the
-   pipeline's specification without altering any of its estimates and
-   produces the validation results of manuscript Section 3.5: the
-   additional columns of Tables 6 and 7, **Table 8**, the inputs of
-   **Figure 4** (drawn by `make_figure4.py`), and **Supplementary Tables
-   S1–S4**.
+**Release v2.1.1** generates every result of the article: Tables 1–8,
+Figures 2–4, and Supplementary Tables S1–S8. No estimate from an
+earlier release is retained. (Figure 1, the municipal map, is produced
+in GIS and is not part of the code.)
 
-(Figure 1, the municipal map, is produced in GIS and is not part of the
-code.)
+## One command
+
+```
+pip install -r requirements.txt
+python complete_pipeline.py --xlsx /path/to/workbook.xlsx --outdir results --workers 4
+```
+
+`complete_pipeline.py` runs the scripts below in a fixed order and with
+the settings used for the article, and writes everything under
+`results/`. It resumes from checkpoints, so an interrupted run is
+restarted with the same command.
+
+| Stage | Script(s) | Output | Article elements |
+|---|---|---|---|
+| `network` | `validation_analysis.py --window strict3 --design mci` | `results/network/` | Tables 3–6; Table 7, Block A; Figures 2–3; Tables S1, S2, S5, S6 |
+| `targeted` | `validation_analysis.py --window lag1 --design lag1only` | `results/targeted/` | Table 7, Block B; Table 8; Tables S1–S4 |
+| `care` | `care_links.py` | `results/care/` | Figure 4; Tables S4(c, d), S7(b), S8 |
+| `tables` | `make_tables.py` | `results/tables/` | Tables 1–8 and S1–S8 (`tables.xlsx` and CSV files) |
+| `figures` | `make_figures.py` | `results/figures/` | Figures 2–4 |
+
+Options: `--stages network,targeted,…` (run a subset), `--workers N`
+(parallel processes for the permutation replicates), `--network-dir` /
+`--targeted-dir` (existing output directories of the two runs),
+`--dry-run` (print the commands), `--force` (continue past a failed
+Gate 1), `--quick` (tiny replicate counts, code check only),
+`--make-synthetic` (see below), and the replicate counts
+`--nboot`, `--nrep-time`, `--nrep-label`, `--nperm-dose`,
+`--nperm-family` (defaults 2000, 500, 500, 2000, 2000, as in the
+article). Each script can also be run on its own; its docstring gives
+the usage.
+
+**Runtime.** The permutation steps of the two runs dominate: several
+hours sequentially, and proportionally less with `--workers N`. All
+other steps take minutes.
+
+## The two estimation samples
+
+The lag examined is one year in every analysis, and the estimation
+sample follows what each model requires (manuscript Section 3.3).
+
+- **Network run (three-consecutive-wave windows).** The MCI test of a
+  link from X at t−1 to Y at t conditions on the lagged parents of Y and
+  on the lagged parents of X, the latter at t−2. An observation at t is
+  therefore retained as a target only if the same respondent was also
+  observed in the two preceding survey years. Every lagged value that
+  enters a test — as the source, as the history of the target, or as a
+  conditioning variable at lag 1 or lag 2 — then belongs to the same
+  respondent's consecutive survey history, in the PC stage and in the
+  MCI stage alike. All pooled and person-demeaned network models
+  (Tables 3–6, Figures 2–3) and Block A of Table 7 are estimated on
+  these windows.
+- **Targeted run (all valid lag-1 transitions).** Block B of Table 7 is
+  a lagged partial correlation conditioned on the lagged parents of the
+  target only (`max_conds_px=0`; parent selection with a maximum lag of
+  one), and Table 8 / Figure 4 are within-person regressions with the
+  target's own lag. Neither contains a lag-2 term, so every value they
+  use belongs to a valid consecutive pair. Neither is an MCI statistic.
+  Both are re-estimated on the windows (Supplementary Tables S3 and S4).
 
 ## Repository structure
 
 ```
-├── complete_pipeline.py         # Full analysis and reporting pipeline (v1.0.0)
-├── validation_analysis.py       # Validation layer: Tables 6-8 (added columns), Figure 4 inputs, S1-S4
-├── make_figure4.py              # Figure 4 (dose-response) from validation outputs
-├── notebooks/
-│   └── run_validation_local.ipynb   # Optional: parallel workers on a local machine
+├── complete_pipeline.py     # one command: runs every stage below
+├── validation_analysis.py   # estimation: PCMCI networks, contrasts, bootstrap, permutation tests,
+│                            #   Anderson–Hsiao, rate interaction (network run and targeted run)
+├── care_links.py            # Caregiving Support links: the interaction model for each of the 13 targets,
+│                            #   coefficients within rate quintiles, subset regressions
+├── make_tables.py           # Tables 1–8 and Supplementary Tables S1–S8
+├── make_figures.py          # Figures 2–4
 ├── data/
-│   └── schema.csv               # Workbook layout: variable definitions and sources (no raw data)
-├── .gitignore                   # Prevents accidental data/output commits
+│   └── schema.csv           # workbook layout: variable definitions and sources (no raw data)
 ├── requirements.txt
 ├── CITATION.cff
 ├── LICENSE
@@ -65,172 +115,149 @@ both sheets that the code reads — `24_分析データ` (33 columns, read
 positionally) and `17_Population` (11 columns) — with each variable's
 type, unit, definition, source, access conditions, and whether it is
 used, so that researchers who obtain the individual data can assemble an
-equivalent workbook and run both scripts without modification.
+equivalent workbook and run the pipeline without modification.
 
-All outputs are **aggregate-level** (edge lists, centralities,
+All outputs are **aggregate-level** (edge lists, coefficients,
 contrasts, counts, permutation summaries) and safe to share; nothing
 person-level is written to disk.
+
+### Running the code without the data
+
+```
+python complete_pipeline.py --make-synthetic synthetic.xlsx
+python complete_pipeline.py --xlsx synthetic.xlsx --outdir results_synthetic --quick --force
+```
+
+The synthetic workbook has the layout of the real one and randomly
+generated content. It checks that every stage runs; its outputs have no
+relation to the survey and must not be reported. `--force` is needed
+because Gate 1 compares the sample structure with Table 1.
 
 ## Requirements
 
 - Python ≥ 3.10
 - `numpy`, `pandas`, `scipy`, `openpyxl`, `matplotlib`, `tigramite` ≥ 5.2
-  (the article's results were produced with tigramite 5.2.10.1)
 
-```
-pip install -r requirements.txt
-```
-
-## How to run
-
-### 1. Main pipeline (Tables 1–7, Figures 2–3)
-
-```
-python complete_pipeline.py --xlsx /path/to/workbook.xlsx --outdir results
-```
-
-Reads the workbook, builds the panel, runs Gate 1 and stops on failure,
-then estimates all 28 PCMCI models and writes the outputs. Options:
-`--force` (proceed past a failed Gate 1), `--jitter-seed N`
-(jitter-invariance check), `--skip-figures`. **Runtime** roughly 30–90
-minutes.
-
-The pipeline also writes `figures/figure4.*`, the decline-contrast
-forest plot of the first revision. That figure is no longer in the
-article; the article's Figure 4 is produced by `make_figure4.py` (below).
-The pipeline is kept unchanged so that every number in Tables 1–7 can be
-regenerated exactly.
-
-### 2. Validation layer (Tables 6–8, Figure 4, Supplementary S1–S4)
-
-`validation_analysis.py` is standalone (it does not import the pipeline)
-but reproduces the pipeline's specification exactly: identical panel
-construction and jitter, the same mask, PCMCI parameters, and reporting
-criteria. Its first step (Gate 1) checks the 30 sample-structure values of
-Table 1 and stops on any mismatch; its target fits reproduce the Table 7
-coefficients, and every fixed-conditioning-set partial correlation is
-checked against the corresponding Tigramite MCI value.
-
-```
-python validation_analysis.py --xlsx /path/to/workbook.xlsx --outdir validation \
-    --steps gate,diag,common,boot,ahiv,perm_time,perm_label,window_check,period_check,dose \
-    --nboot 2000 --nrep-time 500 --nrep-label 500 --nperm-dose 2000 --seed 2026
-python make_figure4.py --indir validation --outdir figures
-```
-
-| Step | What it does | Article element |
-|---|---|---|
-| `gate` | Table 1 reproduction (hard stop unless `--force`) | Table 1 |
-| `diag` | wave-count distributions, contemporaneous correlation, implied short-panel bias, own-lag MCI | Table S1 |
-| `common` | MCI conditioning sets; re-estimation under the union set, own lag only, and no conditioning | Table 7 note; Table S2 |
-| `boot` | municipality block bootstrap of the contrast (conditioning sets fixed) | Table 7, cluster-bootstrap z |
-| `perm_time` | within-person time permutation: per-edge null bands for all 182 lagged edges, contrast statistics | Table 6, null band and permutation p; Table S1 |
-| `perm_label` | municipality label permutation: single-edge, E3-family (13 contrasts), all-182 and paper-rule p-values; `--label-blocks global,region,prefecture` | Table 7, permutation p |
-| `ahiv` | Anderson–Hsiao IV in first differences, binary subsets | Table S4(a) |
-| `window_check`, `period_check` | transition-window and period/position sensitivity | Table S3 |
-| `dose` | continuous moderation by the municipal population change rate: within OLS with own lag and year fixed effects, cluster SE, randomisation inference, AH-IV with interaction, quintile profile, family test over all 182 edges; then the Figure 4 inputs and the region robustness check | Table 8; Figure 4; Table S4(b, c) |
-| `dose_extra` | only the Figure 4 inputs and the region robustness check (a few minutes) | Figure 4; Table 8 note |
-
-Repeating the same command resumes cached fits and permutation
-replicates; separate calls per `--scales` merge their tables. Permutation
-p-values are (b + 1)/(B + 1). **Runtime** with the counts above: the PCMCI
-permutation steps (`perm_time`, `perm_label`) dominate — several hours
-sequentially, about one hour with parallel workers (`--rep-range START:END`
-slices per step/scale, aggregated by a final call without `--rep-range`;
-see `notebooks/run_validation_local.ipynb`). All other steps take minutes.
-
-Options: `--window strict3` (three consecutive waves at all stages, used
-only by `window_check`), `--exclude-movers`, `--scales SMC` or `Large`,
-`--force`, `--rep-range`.
+The article's results were produced with Python 3.13.9, numpy 2.3.5,
+pandas 2.2.3, scipy 1.17.0 and tigramite 5.2.10.1.
 
 ## Output ↔ article mapping
 
-### `complete_pipeline.py --outdir results`
+### Tables (`results/tables/`, also as sheets of `tables.xlsx`)
 
 | Output | Article element |
 |---|---|
-| `tables/table1_sample_structure.csv` | Table 1 (with the Gate 1 pipeline-vs-manuscript comparison) |
-| `tables/table2_descriptives.csv` | Table 2 |
-| `tables/table3_edge_counts.csv` | Table 3 |
-| `tables/table4_pooled_edges.csv` | Table 4 |
-| `tables/table5_out_strength.csv` | Table 5 |
-| `tables/table6_within_edges.csv` | Table 6, columns MCI, q-value, effective n |
-| `tables/table7_contrasts.csv` | Table 7, columns MCI (n) and Fisher z (p) |
-| `figures/figure2.(png\|pdf)` | Figure 2 — pooled networks, all eight strata |
-| `figures/figure3.(png\|pdf)` | Figure 3 — person-demeaned within-person networks (65+) |
-| `figures/figure4.(png\|pdf)` | decline-contrast forest plot (first revision; not in the article) |
-| `data/edges_pooled.csv`, `data/edges_within.csv` | reported edges, full precision |
-| `data/all_edges_pooled.csv`, `data/all_edges_within.csv` | all 182 lagged hypotheses per model, incl. non-significant |
-| `data/contrasts.csv` | decline contrasts, full precision (targeted family + age-pattern check) |
-| `data/sensitivity_edge_counts.csv` | edge counts under four reporting criteria (Section 4.3) |
-| `data/composition_check.csv` | pooled models on the 3-wave-plus subsample (Section 4.3) |
-| `data/contemporaneous_pairs.csv` | lag-0 verification layer (Section 4.2) |
-| `data/run_metadata.json` | all parameters + software versions |
+| `T1_sample_structure.csv` | Table 1 |
+| `T2_descriptives.csv`, `T2_descriptives_wide.csv` | Table 2 |
+| `T3_edge_counts.csv` | Table 3 (main criteria and the two sensitivity criteria of the note) |
+| `T4_pooled_edges.csv` | Table 4 |
+| `S_depth_life_satisfaction_hub.csv`, `T5_out_strength.csv` | Table 5 (conditioning depths; reported outgoing edges and out-strength) |
+| `T6_within_edges.csv`, `T6b_null_summary_and_care_links.csv` | Table 6 and its note (null bands, permutation p, edges under the null) |
+| `T7_decline_contrast.csv` | Table 7, Blocks A and B (65+): coefficients, Fisher z, cluster bootstrap, permutation p |
+| `T7d_other_contrasts.csv` | Table 7, age-pattern checks (15–64); Supplementary Table S7(a) |
+| `T8_dose_response.csv`, `T8c_region_robustness.csv` | Table 8 and its note |
+| `T7c_conditioning_conventions.csv` | Supplementary Table S2 |
+| `T7e_position_and_period.csv`, `T7f_window_by_design.csv` | Supplementary Table S3 |
+| `T7b_anderson_hsiao.csv`, `T8_dose_response.csv` (Anderson–Hsiao rows) | Supplementary Table S4(a, b) |
+| `S4c_interaction_placement.csv`, `S4d_rate_region_windows.csv` | Supplementary Table S4(c, d) |
+| `S_depth_negative_pooled_edges.csv` | Supplementary Table S5 |
+| `T5_out_strength.csv` | Supplementary Table S6 |
+| `S7b_jobs_wages_regressions.csv` | Supplementary Table S7(b) |
+| `S8a_family_13_targets.csv`, `S8b_quintile_coefficients.csv` | Supplementary Table S8 |
 
-### `validation_analysis.py --outdir validation`
+Supplementary Table S1 is read from `V1_diagnostics.csv`,
+`V1_wave_distribution*.csv`, `V1_conditioning_sets.json` and
+`V3_perm_time_*.json` of the two runs. The remaining sheets of
+`tables.xlsx` (`S_two_layers_summary`, `T5b_…`, `S_lag1only_…`) compare
+the network run with the lag-1-only network layer of the targeted run;
+they are not reported in the article.
+
+### Estimation outputs
+
+| Output | Content |
+|---|---|
+| `network/`, `targeted/`: `N_all_edges.csv`, `N_network_summary.csv` | all 182 directed lagged links of every model (coefficient, p, q, reported flag, conditioning set) |
+| `G1_table1_check.csv` | Gate 1: 30 values of Table 1 |
+| `V1_*`, `V2_common_set.csv` | short-panel diagnostics, wave-count distributions, conditioning sets and conventions |
+| `V3_perm_time_*`, `V3_table6_edges_vs_null_*` | within-person time permutation (500 replicates per model) |
+| `V4_cluster_boot.csv` | municipality block bootstrap of the contrast (2,000 replicates) |
+| `V5_anderson_hsiao.csv` | Anderson–Hsiao estimates in first differences |
+| `V6_perm_label_*` | municipality label permutation (500 replicates) |
+| `V7_window_sensitivity.csv`, `V8_period_position*.csv` | window, run-position and survey-period sensitivity |
+| `V9_dose_response*.csv`, `V9_figure4_*` | continuous moderation by the municipal annual population change rate |
+| `care/V10_family_<scale>_<sample>.csv` | the interaction model for each of the 13 targets (lag-1 transitions and windows) |
+| `care/V11_quintile_slopes.csv`, `care/V11_subset_regressions.csv` | coefficients within rate quintiles; shrinking and non-shrinking subset regressions |
+| `run_metadata.json`, `sample_flow.json`, `pipeline_run.json` | identity of each run: code and data hashes, seed, settings, package versions |
+
+### Figures (`results/figures/`)
 
 | Output | Article element |
 |---|---|
-| `G1_table1_check.csv` | Gate 1 (30 Table 1 values) |
-| `V3_table6_edges_vs_null_{SMC,Large}.csv` | Table 6, null 95% band and permutation p (all 182 edges per model) |
-| `V3_perm_time_{SMC,Large}.json` / `.csv` | Table 6 note (edge counts under the null); Table S1 |
-| `V4_cluster_boot.csv` | Table 7, cluster-bootstrap z (p) |
-| `V6_perm_label_{SMC,Large}_{global,region,prefecture}.json` / `.csv` | Table 7, permutation p (single edge, E3 family, all 182); region-blocked values in the note |
-| `V9_dose_response.csv` | Table 8; Table S4(b) (AH-IV rows) |
-| `V9_dose_response_family.csv` | Table S4(c) |
-| `V9_dose_response_region.csv` | Table 8 note (region fixed effects; region-blocked randomisation) |
-| `V9_figure4_lines.json`, `V9_figure4_quintile_slopes.csv` | inputs of Figure 4 |
-| `V1_diagnostics.csv`, `V1_wave_distribution.csv` | Table S1(a) |
-| `V1_wave_distribution_all_strata.csv` | Table S1(b) |
-| `V1_conditioning_sets.json`, `V2_common_set.csv` | Table 7 note; Table S2 |
-| `V7_window_sensitivity.csv`, `V8_period_position.csv`, `V8_period_position_contrasts.csv` | Table S3 |
-| `V5_anderson_hsiao.csv` | Table S4(a) |
-| `run_metadata.json`, `sample_flow.json` | identity of the run (code and data hashes, seed, settings) and package versions |
-
-### `make_figure4.py --indir validation --outdir figures`
-
-| Output | Article element |
-|---|---|
-| `figures/figure4.(png\|pdf)` | Figure 4 — dose-response of the care-work dependency by population change rate |
+| `figure2.(png\|pdf)` | Figure 2 — pooled networks, eight strata |
+| `figure3.(png\|pdf)` | Figure 3 — person-demeaned networks in SMCs, by age group |
+| `figure4.(png\|pdf)` | Figure 4 — Caregiving Support → 13 target domains by the pace of population decline |
 
 ## Reproducibility notes
 
-- The transition mask restricts every lagged test to consecutive-year
-  observations of the same respondent; applied to the dependent
-  variable (`mask_type="y"`), it governs both MCI estimates and their
-  analytic significance (manuscript Section 3.3). Conditioning variables
-  at lag 2 (the parents of the source variable shifted by one lag in the
-  MCI stage) are read from the preceding row, which for transitions
-  without a three-year history belongs to a non-consecutive year or
-  another respondent; `validation_analysis.py --steps common` quantifies
-  the consequence (Supplementary Table S2, row "own lag only") and
-  `--window strict3` re-estimates on three-consecutive-wave windows.
-- Reporting criteria: BH q < .05 over the 182 directed lag-1
-  hypotheses of each model and |MCI| ≥ .10; the sensitivity criterion
-  lowers the floor to .05. `PC_ALPHA = 0.05` is the PCMCI
-  condition-selection level.
-- A negligible jitter (SD = 1e-5) breaks degenerate ties in covariate
-  codes; the seed and draw order are fixed for exact stream
-  reproduction, and no reported estimate depends on the seed
-  (`--jitter-seed`).
-- Person-demeaning is applied within each estimation subset for
-  respondents observed in ≥ 3 waves (manuscript Section 3.4).
-- The set of `city_type` values classified as Large is identified
-  automatically and must reproduce the manuscript count of 122
-  large-city municipalities exactly; otherwise the pipeline stops.
-- `validation_analysis.py` seeds every permutation replicate from
-  (seed, step, scale, replicate), so results are identical whether
-  replicates are computed in one process or in parallel slices.
-  `run_metadata.json` records the code and data hashes, the seed and
-  settings of each run, and the Python and package versions.
+- **Mask.** The window mask (network run) or the transition mask
+  (targeted run) is applied to the dependent variable
+  (`mask_type="y"`), so the estimates and their analytic significance
+  are computed only from valid targets. The stacked person-year data
+  are ordered by respondent and survey year.
+- **Reporting criteria.** BH q < .05 over the 182 directed lag-1
+  hypotheses of each model and |MCI| ≥ .10. `PC_ALPHA = 0.05` is the
+  PCMCI condition-selection level; the maximum lag is one.
+- **Person-demeaning** is applied within each estimation subset for
+  respondents observed in at least three waves.
+- **Time permutation.** For each respondent, the complete vector of 14
+  satisfaction scores observed in a wave is moved as one unit and the
+  vectors are re-ordered across that respondent's waves
+  (`permute_within_person`); the 14 variables are never permuted
+  independently. Covariates and survey years keep their slots, the data
+  are demeaned again, and the full PCMCI procedure is re-run.
+- **Random streams.** Every bootstrap and permutation replicate is
+  seeded from (seed, step, scale, replicate), so results are identical
+  whether replicates are computed in one process or in parallel slices.
+  Permutation p-values are (b + 1)/(B + 1).
+- **Jitter.** A negligible jitter (SD = 1e-5, fixed seed) breaks
+  degenerate ties in covariate codes; no reported estimate depends on
+  it.
+- **Checks.** Gate 1 stops the run unless the workbook reproduces the
+  sample structure of Table 1. Every fixed-conditioning-set partial
+  correlation is checked against the corresponding Tigramite value.
+  `care_links.py` and `make_tables.py` print a comparison with the
+  published values of Table 8, Supplementary Tables S7(b) and S8(b),
+  and Table 1.
+- **Provenance of the scripts.** `validation_analysis.py` is the file
+  with which the article's results were produced; `run_metadata.json`
+  records its SHA-256 for each run. `care_links.py` and
+  `make_tables.py` consolidate the scripts used for the article (the
+  13-target screen and the table assembly) with their estimation code
+  and random streams unchanged; on identical inputs they reproduce the
+  outputs of those scripts byte for byte. They also compute the
+  quintile coefficients and subset regressions of Supplementary
+  Tables S7(b) and S8(b) and Tables 1–2. `make_figures.py` redraws
+  Figures 2–4 from the aggregate outputs; typographic details of the
+  published figures (fonts, label placement) may differ slightly.
+  `complete_pipeline.py` adds no estimate: it runs the other scripts
+  in order.
+- **Script version strings.** Version constants inside individual
+  scripts record each file's own history; the repository release is
+  v2.1.1.
 
 ## Releases
 
-- **v1.0.0** (2026-09-11): `complete_pipeline.py`; Tables 1–7, Figures 2–4
-  of the first revision.
+- **v1.0.0** (2026-09-11): `complete_pipeline.py`; Tables 1–7 and
+  Figures 2–4 of the first revision.
 - **v1.1.0** (2026-10-01): adds `validation_analysis.py` and
-  `make_figure4.py` (manuscript Section 3.5, Tables 6–8, Figure 4,
-  Supplementary Tables S1–S4). `complete_pipeline.py` is unchanged.
+  `make_figure4.py` (second revision).
+- **v2.1.1** (2026-11-21): third revision. The network models are
+  estimated on three-consecutive-wave windows, so that every lagged
+  value entering a test belongs to the same respondent's consecutive
+  survey history; all tables and figures are regenerated under this
+  specification. `complete_pipeline.py` now runs every stage; the
+  first-revision pipeline and `make_figure4.py` are superseded and
+  remain available under the tags v1.0.0 and v1.1.0.
 
 ## Citation
 
